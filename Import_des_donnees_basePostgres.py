@@ -2,6 +2,8 @@ import pandas as pd
 from sqlalchemy import create_engine
 import os
 from dotenv import load_dotenv
+import ssl
+ssl._create_default_https_context = ssl._create_unverified_context
 
 # 1. SÉCURITÉ ET CONNEXION POSTGRESQL
 
