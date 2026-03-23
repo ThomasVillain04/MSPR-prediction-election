@@ -22,7 +22,7 @@ moteur = create_engine(chaine_connexion)
 
 URL_PARTIS = "https://raw.githubusercontent.com/ThomasVillain04/MSPR-prediction-election/refs/heads/main/output/Parti_Politique_clean.csv"
 URL_CANDIDATS = "https://raw.githubusercontent.com/ThomasVillain04/MSPR-prediction-election/refs/heads/main/output/Candidat_clean.csv"
-URL_RESULTATS = "https://raw.githubusercontent.com/ThomasVillain04/MSPR-prediction-election/refs/heads/main/output/Parti_Politique_clean.csv"
+URL_RESULTATS = "https://raw.githubusercontent.com/ThomasVillain04/MSPR-prediction-election/refs/heads/main/output/Resultats_Presidentielles_clean.csv"
 URL_DONNEES = "https://raw.githubusercontent.com/ThomasVillain04/MSPR-prediction-election/refs/heads/main/output/Donnees_Angers_clean.csv"
 
 def charger_donnees_propres():
