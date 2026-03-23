@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 load_dotenv() 
 
 UTILISATEUR = "postgres"
-MOT_DE_PASSE = os.getenv("admin") 
+MOT_DE_PASSE = os.getenv("ADMIN_PASSWORD") 
 HOTE = "172.16.145.32"
 PORT = "5432"
 NOM_BDD = "DB1"
@@ -18,10 +18,10 @@ moteur = create_engine(chaine_connexion)
 
 # 2. LIENS RAW GITHUB DES FICHIERS PROPRES
 
-URL_PARTIS = "https://raw.githubusercontent.com/ThomasVillain04/MSPR-prediction-election/refs/heads/main/Parti_Politique_clean.csv"
-URL_CANDIDATS = "https://raw.githubusercontent.com/ThomasVillain04/MSPR-prediction-election/refs/heads/main/Candidat_clean.csv"
-URL_RESULTATS = "https://raw.githubusercontent.com/ThomasVillain04/MSPR-prediction-election/refs/heads/main/Parti_Politique_clean.csv"
-URL_DONNEES = "https://raw.githubusercontent.com/ThomasVillain04/MSPR-prediction-election/refs/heads/main/Donnees_Angers_clean.csv"
+URL_PARTIS = "https://raw.githubusercontent.com/ThomasVillain04/MSPR-prediction-election/refs/heads/main/input/Parti_Politique_clean.csv"
+URL_CANDIDATS = "https://raw.githubusercontent.com/ThomasVillain04/MSPR-prediction-election/refs/heads/main/input/Candidat_clean.csv"
+URL_RESULTATS = "https://raw.githubusercontent.com/ThomasVillain04/MSPR-prediction-election/refs/heads/main/input/Parti_Politique_clean.csv"
+URL_DONNEES = "https://raw.githubusercontent.com/ThomasVillain04/MSPR-prediction-election/refs/heads/main/input/Donnees_Angers_clean.csv"
 
 def charger_donnees_propres():
 
