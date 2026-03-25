@@ -7,8 +7,9 @@ import warnings
 # Désactiver les avertissements de Pandas pour un affichage propre
 warnings.filterwarnings('ignore')
 
+# ==========================================
 # CONFIGURATION ET CONNEXION
-
+# ==========================================
 DOSSIER_DATA = "input"
 
 load_dotenv() 
@@ -21,8 +22,9 @@ NOM_BDD = "DB1"
 chaine_connexion = f"postgresql://{UTILISATEUR}:{MOT_DE_PASSE}@{HOTE}:{PORT}/{NOM_BDD}"
 moteur = create_engine(chaine_connexion)
 
+# ==========================================
 # DICTIONNAIRE DE MAPPING UNIVERSEL
-
+# ==========================================
 # Fait correspondre chaque candidat/liste
 MAPPING_CANDIDATS_PARTIS = {
     # Présidentielles 2022
@@ -48,8 +50,13 @@ MAPPING_CANDIDATS_PARTIS = {
 }
 
 def executer_pipeline_complet():
-
+    print("🚀 Démarrage du pipeline...")
+    
+    try: # <--- LE TRY MANQUANT ÉTAIT ICI
+        
+        # ==========================================
         # ÉTAPE 1 : BLOC ET PARTI POLITIQUE
+        # ==========================================
         print("1/6 - Traitement des Blocs et Partis...")
         df_bloc_source = pd.read_csv(os.path.join(DOSSIER_DATA, 'bloc.csv'), sep=';')
         
@@ -67,8 +74,9 @@ def executer_pipeline_complet():
         df_parti_final.to_sql('PARTI_POLITIQUE', moteur, if_exists='append', index=False)
         print("   ✅ Référentiels politiques intégrés.")
 
+        # ==========================================
         # ÉTAPE 2 : LIEU
-
+        # ==========================================
         print("2/6 - Traitement des Lieux...")
         # On crée directement la commune d'Angers pour y rattacher nos bureaux et indicateurs
         df_lieu = pd.DataFrame([{
@@ -78,9 +86,11 @@ def executer_pipeline_complet():
             'departement': 'Maine-et-Loire'
         }])
         df_lieu.to_sql('LIEU', moteur, if_exists='append', index=False)
-        print("Lieux intégrés.")
+        print("   ✅ Lieux intégrés.")
 
+        # ==========================================
         # ÉTAPE 3 : BUREAUX DE VOTE
+        # ==========================================
         print("3/6 - Traitement des Bureaux de vote...")
         df_angers22_t1 = pd.read_csv(os.path.join(DOSSIER_DATA, 'election-presidentielle-2022-premier-tour-angers.csv'), sep=';')
         df_angers20_mun = pd.read_csv(os.path.join(DOSSIER_DATA, 'elections-municipales-1-tour-angers-2020.xlsx - Feuil1.csv'), sep=',')
@@ -96,8 +106,9 @@ def executer_pipeline_complet():
         df_bureau.to_sql('BUREAU_VOTE', moteur, if_exists='append', index=False)
         print("   ✅ Bureaux de vote intégrés.")
 
+        # ==========================================
         # ÉTAPE 4 : CANDIDATS
-
+        # ==========================================
         print("4/6 - Traitement des Candidats...")
         df_candidat = pd.DataFrame({'nom_complet': list(MAPPING_CANDIDATS_PARTIS.keys())})
         df_candidat['nom_parti_cible'] = df_candidat['nom_complet'].map(MAPPING_CANDIDATS_PARTIS)
@@ -120,8 +131,9 @@ def executer_pipeline_complet():
         dict_candidat_id = dict(zip(df_candidat['nom_complet'], df_candidat_final['id_candidat']))
         print("   ✅ Candidats intégrés.")
 
+        # ==========================================
         # ÉTAPE 5 : INDICATEURS SOCIO-ECO
-
+        # ==========================================
         print("5/6 - Traitement des Indicateurs (Police & Chômage)...")
         # --- POLICE ---
         df_police = pd.read_csv(os.path.join(DOSSIER_DATA, 'donnee-police.csv'), sep=';', decimal=',')
@@ -146,10 +158,11 @@ def executer_pipeline_complet():
         df_ind['id_lieu'] = 1
         df_ind.insert(0, 'id_indicateur', range(1, len(df_ind) + 1))
         df_ind.to_sql('INDICATEURS_SOCIO_ECO', moteur, if_exists='append', index=False)
-        print("   ✅ Indicateurs socio-économiques intégrés.")
+        print(" Indicateurs socio-économiques intégrés.")
 
+        # ==========================================
         # ÉTAPE 6 : RÉSULTATS (Le coeur du métier)
-
+        # ==========================================
         print("6/6 - Traitement des Résultats électoraux...")
         dfs_resultats = []
 
@@ -198,7 +211,7 @@ def executer_pipeline_complet():
         print("\n INCROYABLE ! Ton architecture en étoile est 100% opérationnelle !")
 
     except Exception as e:
-        print(f"\n Erreur critique : {e}")
+        print(f"\n  Erreur critique : {e}")
 
 if __name__ == "__main__":
     executer_pipeline_complet()
