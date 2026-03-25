@@ -13,10 +13,10 @@ DOSSIER_DATA = "input"
 
 load_dotenv() 
 UTILISATEUR = "postgres"
-MOT_DE_PASSE = os.getenv("MON_SUPER_MOT_DE_PASSE") 
-HOTE = "localhost"
+MOT_DE_PASSE = os.getenv("admin") 
+HOTE = "172.16.145.32"
 PORT = "5432"
-NOM_BDD = "ta_base_de_donnees"
+NOM_BDD = "DB1"
 
 chaine_connexion = f"postgresql://{UTILISATEUR}:{MOT_DE_PASSE}@{HOTE}:{PORT}/{NOM_BDD}"
 moteur = create_engine(chaine_connexion)
@@ -48,14 +48,6 @@ MAPPING_CANDIDATS_PARTIS = {
 }
 
 def executer_pipeline_complet():
-    print("🚀 Démarrage du Pipeline ETL Automatisé...")
-
-    try:
-        # NETTOYAGE PREALABLE DE LA BASE
-        with moteur.begin() as conn:
-            conn.execute(text('TRUNCATE TABLE "RESULTATS", "INDICATEURS_SOCIO_ECO", "CANDIDAT", "BUREAU_VOTE", "LIEU", "PARTI_POLITIQUE", "BLOC" CASCADE;'))
-        print("🧹 Base de données réinitialisée pour un import propre.")
-
 
         # ÉTAPE 1 : BLOC ET PARTI POLITIQUE
         print("1/6 - Traitement des Blocs et Partis...")
