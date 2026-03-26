@@ -27,7 +27,7 @@ def executer_etl_mcd():
     # --- ÉTAPE 1: PARTI_POLITIQUE ---
     print("1/5 - Insertion Parti_Politique...")
     df_bloc = pd.read_csv(os.path.join(DOSSIER_DATA, 'bloc_clean.csv'))
-    df_parti = df_bloc[['libelle_nuance', 'bloc']].drop_duplicates().dropna()
+    df_parti = df_bloc[['signification', 'bloc']].drop_duplicates().dropna()
     df_parti.columns = ['nom_parti', 'bord']
     df_parti.insert(0, 'id', range(1, len(df_parti) + 1))
     df_parti.to_sql('Parti_Politique', engine, if_exists='append', index=False)
@@ -138,28 +138,54 @@ def executer_etl_mcd():
     df_insert_angers.to_sql('Donnees_Angers', engine, if_exists='append', index=False)
     print(f"✅ Donnees_Angers enrichie (Revenu médian moyen à Angers : ~21 450€).")
 
-    # --- ÉTAPE 4: RESULTATS_PRESIDENTIELLES ---
-    print("4/5 - Insertion Resultats_Presidentielles...")
-    files_pres = [
-        ('election-presidentielle-2022-premier-tour-angers_clean.csv', 2022, 1),
-        ('election-presidentielle-2022-second-tour-angers_clean.csv', 2022, 2)
+    # --- ÉTAPE 4: RESULTATS_PRESIDENTIELLES (2017 & 2022) ---
+    print("4/5 - Insertion Resultats_Presidentielles (2017 & 2022)...")
+    
+    fichiers_pres = [
+        {"annee": 2017, "tour": 1, "file": 'election-presidentielle-2017-premier-tour-angers_clean.csv', "col_bureau": 'bureaux'},
+        {"annee": 2017, "tour": 2, "file": 'election-presidentielle-2017-second-tour-angers_clean.csv', "col_bureau": 'bureau'},
+        {"annee": 2022, "tour": 1, "file": 'election-presidentielle-2022-premier-tour-angers_clean.csv', "col_bureau": 'bureau vote'},
+        {"annee": 2022, "tour": 2, "file": 'election-presidentielle-2022-second-tour-angers_clean.csv', "col_bureau": 'bureau vote'}
     ]
+
     p_idx = 1
-    for f_name, annee, tour in files_pres:
-        path = os.path.join(DOSSIER_DATA, f_name)
+    for f_info in fichiers_pres:
+        path = os.path.join(DOSSIER_DATA, f_info["file"])
         if os.path.exists(path):
             df = pd.read_csv(path)
-            tech = ['bureau vote', 'nom bureau vote', 'circonscription', 'inscrits', 'abstentions', 'votants_urne', 'votants_emarg', 'blancs', 'nuls', 'exprimes', 'geo shape', 'geo_point_2d']
-            cands = [c for c in df.columns if c not in tech]
-            df_m = pd.melt(df, value_vars=cands, var_name='full_name', value_name='nb_voix')
-            df_m['candidat_id'] = df_m['full_name'].str.upper().map(dict_cand_id)
-            df_m['nom'] = df_m['full_name'].str.split().str[-1].str.upper()
-            df_m['prenom'] = df_m['full_name'].str.split().str[0].str.capitalize()
-            df_ins = df_m.dropna(subset=['candidat_id'])[['nom', 'prenom', 'nb_voix', 'candidat_id']]
-            df_ins['num_tour'], df_ins['annee'] = tour, annee
-            df_ins.insert(0, 'id', range(p_idx, p_idx + len(df_ins)))
-            p_idx += len(df_ins)
-            df_ins.to_sql('Resultats_Presidentielles', engine, if_exists='append', index=False)
+            
+            # Pivot des données selon l'année
+            if f_info["annee"] == 2017:
+                cols_cands = [c for c in df.columns if c.startswith('nb_voix_')]
+                df_melted = pd.melt(df, id_vars=[f_info["col_bureau"]], value_vars=cols_cands, var_name='cand_brut', value_name='nb_voix')
+                df_melted['nom_recherche'] = df_melted['cand_brut'].str.replace('nb_voix_', '').str.replace('_', ' ').str.upper()
+            else:
+                cols_exclues = ['bureau vote', 'nom bureau vote', 'circonscription', 'inscrits', 'abstentions', 'votants_urne', 'votants_emarg', 'blancs', 'nuls', 'exprimes', 'geo shape', 'geo_point_2d']
+                cols_cands = [c for c in df.columns if c not in cols_exclues]
+                df_melted = pd.melt(df, id_vars=[f_info["col_bureau"]], value_vars=cols_cands, var_name='nom_recherche', value_name='nb_voix')
+                df_melted['nom_recherche'] = df_melted['nom_recherche'].str.upper()
+
+            # Mapping pour obtenir l'ID
+            df_melted['candidat_id'] = df_melted['nom_recherche'].map(dict_cand_id)
+            df_melted = df_melted.dropna(subset=['candidat_id'])
+
+            # RÉCUPÉRATION NOM/PRENOM DEPUIS LE RÉFÉRENTIEL (pour coller au MCD)
+            # On utilise df_cand_ref (créé à l'étape 2 de ton script original)
+            df_final = pd.merge(df_melted, df_cand_ref[['id', 'nom', 'prenom']], left_on='candidat_id', right_on='id')
+
+            # Sélection et renommage des colonnes selon ton script SQL
+            # Colonnes attendues : id, nom, prenom, nb_voix, num_tour, annee, candidat_id
+            df_to_insert = df_final[['nom', 'prenom', 'nb_voix', 'candidat_id']].copy()
+            df_to_insert['num_tour'] = f_info["tour"]
+            df_to_insert['annee'] = f_info["annee"]
+            
+            # ID incrémental
+            df_to_insert.insert(0, 'id', range(p_idx, p_idx + len(df_to_insert)))
+            p_idx += len(df_to_insert)
+            
+            # Insertion
+            df_to_insert.to_sql('Resultats_Presidentielles', engine, if_exists='append', index=False)
+            print(f"   ✅ {f_info['annee']} Tour {f_info['tour']} inséré ({len(df_to_insert)} lignes).")
 
     # --- ÉTAPE 5: RESULTATS_MUNICIPALES ---
     print("5/5 - Insertion Resultats_Municipales...")
