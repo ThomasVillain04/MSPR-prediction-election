@@ -161,16 +161,17 @@ Des actions sont mises en place pour garantir :
 
 ### 2. Étapes d’exécution
 
-#### 📥 Étape 1 : Import des données
 
-```bash
-python Import_des_donnees_basePostgres.py
-```
-
-#### 🧹 Étape 2 : Nettoyage
+#### 🧹 Étape 1 : Nettoyage
 
 ```bash
 python Nettoyage.py
+```
+
+#### 📥 Étape 2 : Import des données
+
+```bash
+python Import_des_donnees_basePostgres.py
 ```
 
 ---
