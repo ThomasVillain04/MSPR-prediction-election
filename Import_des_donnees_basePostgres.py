@@ -33,7 +33,7 @@ def executer_etl_mcd():
     df_parti.to_sql('Parti_Politique', engine, if_exists='append', index=False)
     dict_parti_id = dict(zip(df_parti['nom_parti'], df_parti['id']))
 
-    # --- ÉTAPE 2: CANDIDAT ---
+    # --- ÉTAPE 2: CANDIDAT (Logique conservée du script original) ---
     print("2/5 - Insertion Candidat...")
     MAPPING_CANDIDATS = {
         'Nathalie Arthaud': ('Nathalie', 'Arthaud', 'Extrême gauche'),
@@ -66,81 +66,54 @@ def executer_etl_mcd():
             'nom': nom, 
             'prenom': prenom, 
             'parti_politique_id': p_id, 
-            'popularite': None, # Match MCD sans accent
+            'popularite': None,
             'key_search': key.upper()
         })
     
     df_cand_ref = pd.DataFrame(candidats_list)
     df_cand_ref.drop(columns=['key_search']).to_sql('Candidat', engine, if_exists='append', index=False)
     
-    # Dictionnaire de mapping pour les étapes suivantes
     dict_cand_id = dict(zip(df_cand_ref['key_search'], df_cand_ref['id']))
     for _, row in df_cand_ref.iterrows():
         dict_cand_id[f"{row['prenom']} {row['nom']}".upper()] = row['id']
 
-    # --- ÉTAPE 3: DONNEES_ANGERS ---
-    print("3/5 - Insertion Donnees_Angers (Enrichissement Insee)...")
+    # --- ÉTAPE 3: DONNEES_ANGERS (Mise à jour avec les 3 nouveaux CSV) ---
+    print("3/5 - Insertion Donnees_Angers (Criminalité, Pauvreté, Revenu)...")
     
-    # A. Initialisation avec Chômage et Police
+    # 1. Base : Taux de chômage (conservé du script initial)
     df_c = pd.read_csv(os.path.join(DOSSIER_DATA, 'chomage-angers-trim-2003-2025_clean.csv'))
     df_c_ang = df_c[df_c['libze2020'] == 'Angers']
     cols_trims = [c for c in df_c_ang.columns if '-t' in c]
     df_c_melt = pd.melt(df_c_ang, value_vars=cols_trims, var_name='periode', value_name='taux_chomage')
     df_c_melt['annee'] = df_c_melt['periode'].str.split('-t').str[0].astype(int)
     df_c_melt['num_trimestre'] = df_c_melt['periode'].str.split('-t').str[1].astype(int)
+    df_base = df_c_melt[['annee', 'num_trimestre', 'taux_chomage']]
 
-    df_p = pd.read_csv(os.path.join(DOSSIER_DATA, 'donnee-police_clean.csv'), decimal=',')
-    df_p_ang = df_p[df_p['codgeo_2025'].astype(str).str.strip() == '49007'].groupby('annee')['taux_pour_mille'].mean().reset_index()
+    # 2. Chargement des 3 nouveaux fichiers
+    df_crim = pd.read_csv(os.path.join(DOSSIER_DATA, 'taux_criminalite_clean.csv'))
+    df_pauv = pd.read_csv(os.path.join(DOSSIER_DATA, 'taux_pauvrete_clean.csv'))
+    df_rev = pd.read_csv(os.path.join(DOSSIER_DATA, 'revenu_median_angers_clean.csv'))
 
-    df_final_angers = pd.merge(df_c_melt, df_p_ang, on='annee', how='left').rename(columns={'taux_pour_mille': 'taux_criminalite'})
-    df_final_angers['revenu_median'] = None
-    df_final_angers['taux_pauvrete'] = None
+    # Renommage pour harmoniser la fusion (on s'assure d'avoir 'annee' et 'num_trimestre')
+    # Hypothèse : tes CSV utilisent 'annee' et 'trimestre'
+    for df in [df_crim, df_pauv, df_rev]:
+        if 'trimestre' in df.columns:
+            df.rename(columns={'trimestre': 'num_trimestre'}, inplace=True)
 
-    # B. Fonction de chargement Insee avec fallback de code géo
-    def get_insee_data(filename, primary='49701', secondary='49007'):
-        path = os.path.join(DOSSIER_DATA, filename)
-        if not os.path.exists(path): return None
-        df = pd.read_csv(path)
-        df.columns = df.columns.str.lower().str.strip()
-        df['codgeo'] = df['codgeo'].astype(str).str.strip()
-        res = df[df['codgeo'] == primary]
-        return res if not res.empty else df[df['codgeo'] == secondary]
+    # 3. Fusion successive (Left join sur la base chômage pour garder l'historique temporel)
+    df_final_angers = pd.merge(df_base, df_crim[['annee', 'num_trimestre', 'taux_criminalite']], on=['annee', 'num_trimestre'], how='left')
+    df_final_angers = pd.merge(df_final_angers, df_pauv[['annee', 'num_trimestre', 'taux_pauvrete']], on=['annee', 'num_trimestre'], how='left')
+    df_final_angers = pd.merge(df_final_angers, df_rev[['annee', 'num_trimestre', 'revenu_median']], on=['annee', 'num_trimestre'], how='left')
 
-    rows_insee = {
-        2015: get_insee_data('base-cc-filosofi-2015_clean.csv'),
-        2016: get_insee_data('base-cc-filosofi-2016_clean.csv'),
-        2017: get_insee_data('taux-pauvrete-2017_clean.csv'),
-        2018: get_insee_data('taux-pauvrete-2018_clean.csv')
-    }
-
-    for idx, row in df_final_angers.iterrows():
-        yr = row['annee']
-        data = rows_insee.get(yr)
-        if data is not None and not data.empty:
-            try:
-                if yr in [2017, 2018]:
-                    sfx = str(yr)[-2:]
-                    cols_pauvre = [f'tp60age1{sfx}', f'tp60tol2{sfx}', f'tp60age3{sfx}', f'tp60age4{sfx}', f'tp60age5{sfx}', f'tp60age6{sfx}']
-                    tp = data[cols_pauvre].apply(pd.to_numeric, errors='coerce').mean(axis=1).values[0]
-                    med = float(data[f'med{sfx}'].values[0])
-                elif yr == 2015:
-                    tp, med = float(data['tp6015'].values[0]), float(data['med15'].values[0])
-                elif yr == 2016:
-                    tp = float(data['tp6016'].values[0]) if 'tp6016' in data.columns else float(data['tp6015'].values[0])
-                    med = float(data['med16'].values[0]) if 'med16' in data.columns else float(data['med15'].values[0])
-                
-                df_final_angers.at[idx, 'taux_pauvrete'] = tp
-                df_final_angers.at[idx, 'revenu_median'] = med
-            except: pass
-
+    # Nettoyage final pour le SQL
     df_insert_angers = df_final_angers[['num_trimestre', 'annee', 'taux_chomage', 'revenu_median', 'taux_pauvrete', 'taux_criminalite']]
     df_insert_angers.insert(0, 'id', range(1, len(df_insert_angers) + 1))
-    df_insert_angers.to_sql('Donnees_Angers', engine, if_exists='append', index=False)
-    print(f"✅ Donnees_Angers enrichie (Revenu médian moyen à Angers : ~21 450€).")
-
-    # --- ÉTAPE 4: RESULTATS_PRESIDENTIELLES (2017 & 2022) ---
-    print("4/5 - Insertion Resultats_Presidentielles (2017 & 2022)...")
     
+    df_insert_angers.to_sql('Donnees_Angers', engine, if_exists='append', index=False)
+    print(f"✅ Donnees_Angers insérées ({len(df_insert_angers)} lignes).")
+
+    # --- ÉTAPE 4: RESULTATS_PRESIDENTIELLES (Logique conservée) ---
+    print("4/5 - Insertion Resultats_Presidentielles...")
     fichiers_pres = [
         {"annee": 2017, "tour": 1, "file": 'election-presidentielle-2017-premier-tour-angers_clean.csv', "col_bureau": 'bureaux'},
         {"annee": 2017, "tour": 2, "file": 'election-presidentielle-2017-second-tour-angers_clean.csv', "col_bureau": 'bureau'},
@@ -153,8 +126,6 @@ def executer_etl_mcd():
         path = os.path.join(DOSSIER_DATA, f_info["file"])
         if os.path.exists(path):
             df = pd.read_csv(path)
-            
-            # Pivot des données selon l'année
             if f_info["annee"] == 2017:
                 cols_cands = [c for c in df.columns if c.startswith('nb_voix_')]
                 df_melted = pd.melt(df, id_vars=[f_info["col_bureau"]], value_vars=cols_cands, var_name='cand_brut', value_name='nb_voix')
@@ -165,29 +136,20 @@ def executer_etl_mcd():
                 df_melted = pd.melt(df, id_vars=[f_info["col_bureau"]], value_vars=cols_cands, var_name='nom_recherche', value_name='nb_voix')
                 df_melted['nom_recherche'] = df_melted['nom_recherche'].str.upper()
 
-            # Mapping pour obtenir l'ID
             df_melted['candidat_id'] = df_melted['nom_recherche'].map(dict_cand_id)
             df_melted = df_melted.dropna(subset=['candidat_id'])
-
-            # RÉCUPÉRATION NOM/PRENOM DEPUIS LE RÉFÉRENTIEL (pour coller au MCD)
-            # On utilise df_cand_ref (créé à l'étape 2 de ton script original)
             df_final = pd.merge(df_melted, df_cand_ref[['id', 'nom', 'prenom']], left_on='candidat_id', right_on='id')
 
-            # Sélection et renommage des colonnes selon ton script SQL
-            # Colonnes attendues : id, nom, prenom, nb_voix, num_tour, annee, candidat_id
             df_to_insert = df_final[['nom', 'prenom', 'nb_voix', 'candidat_id']].copy()
             df_to_insert['num_tour'] = f_info["tour"]
             df_to_insert['annee'] = f_info["annee"]
-            
-            # ID incrémental
             df_to_insert.insert(0, 'id', range(p_idx, p_idx + len(df_to_insert)))
             p_idx += len(df_to_insert)
             
-            # Insertion
             df_to_insert.to_sql('Resultats_Presidentielles', engine, if_exists='append', index=False)
-            print(f"   ✅ {f_info['annee']} Tour {f_info['tour']} inséré ({len(df_to_insert)} lignes).")
+            print(f"   ✅ {f_info['annee']} Tour {f_info['tour']} inséré.")
 
-    # --- ÉTAPE 5: RESULTATS_MUNICIPALES ---
+    # --- ÉTAPE 5: RESULTATS_MUNICIPALES (Logique conservée) ---
     print("5/5 - Insertion Resultats_Municipales...")
     path_mun = os.path.join(DOSSIER_DATA, 'elections-municipales-1-tour-angers-2020_clean.csv')
     if os.path.exists(path_mun):
@@ -201,7 +163,7 @@ def executer_etl_mcd():
         df_ins_m.insert(0, 'id', range(1, len(df_ins_m) + 1))
         df_ins_m.to_sql('Resultats_Municipales', engine, if_exists='append', index=False)
     
-    print("🚀 ETL Terminé avec succès ! Toutes les données sont en base.")
+    print("🚀 ETL Terminé avec succès !")
 
 if __name__ == "__main__":
     try:
