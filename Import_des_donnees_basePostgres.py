@@ -93,8 +93,8 @@ def executer_etl_mcd():
     df_p_ang = df_p[df_p['codgeo_2025'].astype(str).str.strip() == '49007'].groupby('annee')['taux_pour_mille'].mean().reset_index()
 
     df_final_angers = pd.merge(df_c_melt, df_p_ang, on='annee', how='left').rename(columns={'taux_pour_mille': 'taux_criminalite'})
-    df_final_angers['revenu_median'] = 0.0
-    df_final_angers['taux_pauvrete'] = 0.0
+    df_final_angers['revenu_median'] = None
+    df_final_angers['taux_pauvrete'] = None
 
     # B. Fonction de chargement Insee avec fallback de code géo
     def get_insee_data(filename, primary='49701', secondary='49007'):
