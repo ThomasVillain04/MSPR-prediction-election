@@ -9,12 +9,11 @@ warnings.filterwarnings('ignore')
 # --- CONFIGURATION ---
 DOSSIER_DATA = "output"
 load_dotenv()
-# Paramètres de connexion PostgreSQL
 UTILISATEUR, MOT_DE_PASSE, HOTE, PORT, NOM_BDD = "postgres", "admin", "172.16.145.32", "5432", "DB1"
 engine = create_engine(f"postgresql://{UTILISATEUR}:{MOT_DE_PASSE}@{HOTE}:{PORT}/{NOM_BDD}")
 
 def nettoyer_tables():
-    """Nettoie les tables avant insertion pour respecter les contraintes FK."""
+    """Nettoie les tables avant insertion."""
     with engine.connect() as conn:
         conn.execute(text('TRUNCATE TABLE "Resultats_Municipales", "Resultats_Presidentielles", "Candidat", "Parti_Politique", "Donnees_Angers" RESTART IDENTITY CASCADE;'))
         conn.commit()
@@ -33,9 +32,10 @@ def executer_etl_mcd():
     df_parti.to_sql('Parti_Politique', engine, if_exists='append', index=False)
     dict_parti_id = dict(zip(df_parti['nom_parti'], df_parti['id']))
 
-    # --- ÉTAPE 2: CANDIDAT (Logique conservée du script original) ---
+    # --- ÉTAPE 2: CANDIDAT (Mis à jour pour 2020 et 2026) ---
     print("2/5 - Insertion Candidat...")
     MAPPING_CANDIDATS = {
+        # Présidentielles
         'Nathalie Arthaud': ('Nathalie', 'Arthaud', 'Extrême gauche'),
         'Fabien Roussel': ('Fabien', 'Roussel', 'Parti communiste français'),
         'Emmanuel Macron': ('Emmanuel', 'Macron', 'Renaissance'),
@@ -50,31 +50,38 @@ def executer_etl_mcd():
         'Nicolas Dupont-Aignan': ('Nicolas', 'Dupont-Aignan', 'Droite souverainiste'),
         'François Fillon': ('François', 'Fillon', 'Les Républicains'),
         'Benoît Hamon': ('Benoît', 'Hamon', 'Parti socialiste'),
+        # Municipales 2020
         'ANGERS POUR VOUS': ('Christophe', 'Béchu', 'Divers droite'),
         'LUTTE OUVRIERE': ('Céline', 'LHuillier', 'Extrême gauche'),
         'ANGERS CITOYENNE ET POPULAIRE': ('Claire', 'Schweitzer', 'Divers gauche'),
         'AIMER ANGERS 2020': ('Silvia', 'Camara-Tombini', 'Divers gauche'),
         'ANGERS ECOLOGIQUE ET SOLIDAIRE': ('Yves', 'Aurégan', 'Ecologiste'),
-        'CHOISIR ANGERS': ('Stéphane', 'Piednoir', 'Divers centre')
+        'CHOISIR ANGERS': ('Stéphane', 'Piednoir', 'Divers centre'),
+        # Municipales 2026 (Nouveaux candidats)
+        'DEMAIN ANGERS': ('Romain', 'Laveau', 'Les Écologistes'),
+        'ANGERS OUVRIERE REVOLUTIONNAIRE': ('Nicolas', 'Cuisinier', 'Extrême gauche'),
+        'ANGERS POPULAIRE': ('Arash', 'Saeidi', 'Divers gauche'),
+        'ANGERS 2026': ('Valentin', 'Rambault', 'Divers'),
+        'RASSEMBLEMENT POUR ANGERS': ('Aurore', 'Lahondès', 'Rassemblement National')
     }
     
     candidats_list = []
     for i, (key, (prenom, nom, parti_nom)) in enumerate(MAPPING_CANDIDATS.items(), 1):
         p_id = dict_parti_id.get(parti_nom)
         candidats_list.append({
-            'id': i, 
-            'nom': nom, 
-            'prenom': prenom, 
-            'parti_politique_id': p_id, 
-            'popularite': None,
-            'key_search': key.upper()
+            'id': i, 'nom': nom, 'prenom': prenom, 'parti_politique_id': p_id, 
+            'popularite': None, 'key_search': key.upper()
         })
     
     df_cand_ref = pd.DataFrame(candidats_list)
     df_cand_ref.drop(columns=['key_search']).to_sql('Candidat', engine, if_exists='append', index=False)
     
-    dict_cand_id = dict(zip(df_cand_ref['key_search'], df_cand_ref['id']))
+    # Dictionnaire de correspondance flexible (gère espaces et underscores)
+    dict_cand_id = {}
     for _, row in df_cand_ref.iterrows():
+        key = row['key_search']
+        dict_cand_id[key] = row['id']
+        dict_cand_id[key.replace(' ', '_')] = row['id']
         dict_cand_id[f"{row['prenom']} {row['nom']}".upper()] = row['id']
 
     # --- ÉTAPE 3: DONNEES_ANGERS (Mise à jour avec les 3 nouveaux CSV) ---
@@ -149,19 +156,62 @@ def executer_etl_mcd():
             df_to_insert.to_sql('Resultats_Presidentielles', engine, if_exists='append', index=False)
             print(f"   ✅ {f_info['annee']} Tour {f_info['tour']} inséré.")
 
-    # --- ÉTAPE 5: RESULTATS_MUNICIPALES (Logique conservée) ---
+    # --- ÉTAPE 5: RESULTATS_MUNICIPALES (2020 + 2026) ---
     print("5/5 - Insertion Resultats_Municipales...")
-    path_mun = os.path.join(DOSSIER_DATA, 'elections-municipales-1-tour-angers-2020_clean.csv')
-    if os.path.exists(path_mun):
-        df_mun = pd.read_csv(path_mun)
-        cands_mun = ['angers pour vous', 'lutte ouvriere', 'angers citoyenne et populaire', 'aimer angers 2020', 'angers ecologique et solidaire', 'choisir angers']
-        df_mm = pd.melt(df_mun, value_vars=cands_mun, var_name='nom_liste', value_name='nb_voix')
-        df_mm['candidat_id'] = df_mm['nom_liste'].str.upper().map(dict_cand_id)
-        df_f_mun = pd.merge(df_mm, df_cand_ref[['id', 'nom', 'prenom']], left_on='candidat_id', right_on='id')
-        df_ins_m = df_f_mun[['nom', 'prenom', 'nb_voix', 'candidat_id']]
-        df_ins_m['num_tour'], df_ins_m['annee'] = 1, 2020
-        df_ins_m.insert(0, 'id', range(1, len(df_ins_m) + 1))
-        df_ins_m.to_sql('Resultats_Municipales', engine, if_exists='append', index=False)
+    
+    # Configuration des fichiers à traiter
+    config_municipales = [
+        # --- Municipales 2020 ---
+        {
+            'fichier': 'elections-municipales-1-tour-angers-2020_clean.csv',
+            'annee': 2020, 'tour': 1,
+            'cands': ['angers_pour_vous', 'lutte_ouvriere', 'angers_citoyenne_et_populaire', 'aimer_angers_2020', 'angers_ecologique_et_solidaire', 'choisir_angers']
+        },
+        # --- Municipales 2026 - Tour 1 ---
+        # Colonnes candidates issues du CSV : demain_angers, angers_ouvriere_revolutionnaire,
+        # angers_pour_vous, angers_populaire, angers_2026, lutte_ouvriere, rassemblement_pour_angers
+        {
+            'fichier': 'elections-municipales-1-tour-angers-2026_clean.csv',
+            'annee': 2026, 'tour': 1,
+            'cands': ['demain_angers', 'angers_ouvriere_revolutionnaire', 'angers_pour_vous', 'angers_populaire', 'angers_2026', 'lutte_ouvriere', 'rassemblement_pour_angers']
+        },
+        # --- Municipales 2026 - Tour 2 ---
+        # Colonnes candidates issues du CSV : demain_angers, angers_pour_vous
+        {
+            'fichier': 'elections-municipales-2-tour-angers-2026_clean.csv',
+            'annee': 2026, 'tour': 2,
+            'cands': ['demain_angers', 'angers_pour_vous']
+        }
+    ]
+
+    for conf in config_municipales:
+        path = os.path.join(DOSSIER_DATA, conf['fichier'])
+        if os.path.exists(path):
+            # Détection automatique du séparateur (virgule ou point-virgule selon le fichier)
+            df = pd.read_csv(path, sep=None, engine='python')
+            df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
+            
+            # Vérification des colonnes présentes
+            cols_valides = [c for c in conf['cands'] if c in df.columns]
+            
+            # Transformation Melt
+            df_melt = pd.melt(df, value_vars=cols_valides, var_name='liste', value_name='nb_voix')
+            
+            # Mapping ID Candidat
+            df_melt['candidat_id'] = df_melt['liste'].str.upper().map(dict_cand_id)
+            
+            # Jointure pour récupérer Nom/Prénom (requis par le MCD)
+            df_final = pd.merge(df_melt, df_cand_ref[['id', 'nom', 'prenom']], left_on='candidat_id', right_on='id')
+            
+            # Préparation insertion (sans colonne ID car Auto-increment)
+            df_to_ins = df_final[['nom', 'prenom', 'nb_voix', 'candidat_id']].copy()
+            df_to_ins['num_tour'] = conf['tour']
+            df_to_ins['annee'] = conf['annee']
+            
+            df_to_ins.to_sql('Resultats_Municipales', engine, if_exists='append', index=False)
+            print(f"   ✅ {conf['annee']} Tour {conf['tour']} inséré ({len(df_to_ins)} lignes).")
+        else:
+            print(f"   ⚠️ Fichier manquant : {conf['fichier']}")
     
     print("🚀 ETL Terminé avec succès !")
 
