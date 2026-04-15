@@ -32,6 +32,8 @@ def executer_etl_mcd():
     df_parti.to_sql('Parti_Politique', engine, if_exists='append', index=False)
     dict_parti_id = dict(zip(df_parti['nom_parti'], df_parti['id']))
 
+    print(f"   ✅ Partis politiques insérés.")
+
     # --- ÉTAPE 2: CANDIDAT (Mis à jour pour 2020 et 2026) ---
     print("2/5 - Insertion Candidat...")
     MAPPING_CANDIDATS = {
@@ -64,6 +66,8 @@ def executer_etl_mcd():
         'ANGERS 2026': ('Valentin', 'Rambault', 'Divers'),
         'RASSEMBLEMENT POUR ANGERS': ('Aurore', 'Lahondès', 'Rassemblement National')
     }
+    print(f"   ✅ Mapping des candidats : OK.")
+
     
     candidats_list = []
     for i, (key, (prenom, nom, parti_nom)) in enumerate(MAPPING_CANDIDATS.items(), 1):
@@ -83,6 +87,9 @@ def executer_etl_mcd():
         dict_cand_id[key] = row['id']
         dict_cand_id[key.replace(' ', '_')] = row['id']
         dict_cand_id[f"{row['prenom']} {row['nom']}".upper()] = row['id']
+
+    print(f"   ✅ Candidats insérés.")
+
 
     # --- ÉTAPE 3: DONNEES_ANGERS (Mise à jour avec les 3 nouveaux CSV) ---
     print("3/5 - Insertion Donnees_Angers (Criminalité, Pauvreté, Revenu)...")
@@ -117,7 +124,7 @@ def executer_etl_mcd():
     df_insert_angers.insert(0, 'id', range(1, len(df_insert_angers) + 1))
     
     df_insert_angers.to_sql('Donnees_Angers', engine, if_exists='append', index=False)
-    print(f"✅ Donnees_Angers insérées ({len(df_insert_angers)} lignes).")
+    print(f"   ✅ Donnees_Angers insérées ({len(df_insert_angers)} lignes).")
 
     # --- ÉTAPE 4: RESULTATS_PRESIDENTIELLES (Logique conservée) ---
     print("4/5 - Insertion Resultats_Presidentielles...")
