@@ -57,7 +57,7 @@ def lire_csv_avec_encodage(chemin_fichier: str, encodage: str) -> pd.DataFrame:
         except Exception:
             pass
 
-    # Dernier recours : latin-1 (accepte tous les octets sans exception)
+    # Tentative 4 : latin-1 (accepte tous les octets sans exception)
     df = pd.read_csv(chemin_fichier, sep=',', encoding='latin-1')
     print("-> Lu en latin-1 (dernier recours).")
     return df
@@ -79,30 +79,30 @@ def nettoyage_generique():
         print(f"\nTraitement de : {nom_fichier}...")
 
         try:
-            # 1. DÉTECTION DE L'ENCODAGE (CSV uniquement, Excel gère ça en interne)
+            # 1. DÉTECTION DE L'ENCODAGE
             if nom_fichier.endswith('.csv'):
                 encodage_detecte = detecter_encodage(chemin_fichier)
                 df = lire_csv_avec_encodage(chemin_fichier, encodage_detecte)
             else:
                 df = pd.read_excel(chemin_fichier)
-                print("-> Fichier Excel lu (encodage géré nativement).")
+                print("-> Fichier Excel") #  --> encodage géré nativement
 
             # 2. STANDARDISATION DES COLONNES
             df.columns = df.columns.astype(str).str.lower().str.strip()
 
             # 3. NETTOYAGE DES VALEURS TEXTE : correction des caractères mal encodés résiduels
-            # On passe par encode/decode pour éliminer les caractères illisibles persistants
+
             for col in df.select_dtypes(include='object').columns:
                 df[col] = (
                     df[col]
                     .astype(str)
                     .str.encode('utf-8', errors='replace')   # encode en utf-8, remplace ce qui ne passe pas
                     .str.decode('utf-8', errors='replace')   # redécode proprement
-                    .str.replace('\ufffd', '', regex=False)  # supprime les caractères de remplacement (U+FFFD)
+                    .str.replace('\ufffd', '', regex=False)  # supprime les caractères de remplacement
                     .str.strip()
                 )
 
-            # 4. NETTOYAGE PUR (Doublons et lignes vides)
+            # 4. NETTOYAGE des doublons et lignes vides
             taille_avant = len(df)
             df = df.dropna(how='all')
             df = df.drop_duplicates()
@@ -110,7 +110,8 @@ def nettoyage_generique():
 
             print(f"-> {taille_avant - taille_apres} ligne(s) 'poubelle' ou doublon(s) supprimée(s).")
 
-            # 5. SAUVEGARDE EN CSV UTF-8
+            # 5. SAUVEGARDE EN CSV 
+            # On enlève les Excel pour que le script d'import le lise bien
             nom_sans_extension = os.path.splitext(nom_fichier)[0]
             nom_sortie = f"{nom_sans_extension}_clean.csv"
             chemin_sortie = os.path.join(DOSSIER_OUTPUT, nom_sortie)
