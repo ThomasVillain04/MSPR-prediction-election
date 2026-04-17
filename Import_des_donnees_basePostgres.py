@@ -6,6 +6,18 @@ import warnings
 
 warnings.filterwarnings('ignore')
 
+
+#####################################################################################
+#                               MSPR Data                                             #
+#   Groupe 2    :                                                                     #
+#     Kévin CALLAUD                                                                   #
+#     Charlélie JAMARD                                                                #
+#     Thomas VILLAIN                                                                  #
+#     Donat RAVA                                                                      #
+#                                                                                     #
+#                                                                                     #
+######################################################################################
+
 # --- CONFIGURATION ---
 DOSSIER_DATA = "output"
 load_dotenv()
@@ -59,7 +71,7 @@ def executer_etl_mcd():
         'AIMER ANGERS 2020': ('Silvia', 'Camara-Tombini', 'Divers gauche'),
         'ANGERS ECOLOGIQUE ET SOLIDAIRE': ('Yves', 'Aurégan', 'Ecologiste'),
         'CHOISIR ANGERS': ('Stéphane', 'Piednoir', 'Divers centre'),
-        # Municipales 2026 (Nouveaux candidats)
+        # Municipales 2026 (Suelement les nouveaux candidats)
         'DEMAIN ANGERS': ('Romain', 'Laveau', 'Les Écologistes'),
         'ANGERS OUVRIERE REVOLUTIONNAIRE': ('Nicolas', 'Cuisinier', 'Extrême gauche'),
         'ANGERS POPULAIRE': ('Arash', 'Saeidi', 'Divers gauche'),
@@ -80,12 +92,12 @@ def executer_etl_mcd():
     df_cand_ref = pd.DataFrame(candidats_list)
     df_cand_ref.drop(columns=['key_search']).to_sql('Candidat', engine, if_exists='append', index=False)
     
-    # Dictionnaire de correspondance flexible (gère espaces et underscores)
+    # Mapping candidat
     dict_cand_id = {}
     for _, row in df_cand_ref.iterrows():
         key = row['key_search']
         dict_cand_id[key] = row['id']
-        dict_cand_id[key.replace(' ', '_')] = row['id']
+        dict_cand_id[key.replace(' ', '_')] = row['id'] # Gestion des espaces et underscores
         dict_cand_id[f"{row['prenom']} {row['nom']}".upper()] = row['id']
 
     print(f"   ✅ Candidats insérés.")
@@ -94,8 +106,12 @@ def executer_etl_mcd():
     # --- ÉTAPE 3: DONNEES_ANGERS (Mise à jour avec les 3 nouveaux CSV) ---
     print("3/5 - Insertion Donnees_Angers (Criminalité, Pauvreté, Revenu)...")
     
-    # 1. Base : Taux de chômage (conservé du script initial)
+    # 1. Base : Taux de chômage
     df_c = pd.read_csv(os.path.join(DOSSIER_DATA, 'chomage-angers-trim-2003-2025_clean.csv'))
+    df_crim = pd.read_csv(os.path.join(DOSSIER_DATA, 'taux_criminalite_clean.csv'))
+    df_pauv = pd.read_csv(os.path.join(DOSSIER_DATA, 'taux_pauvrete_clean.csv'))
+    df_rev = pd.read_csv(os.path.join(DOSSIER_DATA, 'revenu_median_angers_clean.csv'))
+
     df_c_ang = df_c[df_c['libze2020'] == 'Angers']
     cols_trims = [c for c in df_c_ang.columns if '-t' in c]
     df_c_melt = pd.melt(df_c_ang, value_vars=cols_trims, var_name='periode', value_name='taux_chomage')
@@ -103,23 +119,17 @@ def executer_etl_mcd():
     df_c_melt['num_trimestre'] = df_c_melt['periode'].str.split('-t').str[1].astype(int)
     df_base = df_c_melt[['annee', 'num_trimestre', 'taux_chomage']]
 
-    # 2. Chargement des 3 nouveaux fichiers
-    df_crim = pd.read_csv(os.path.join(DOSSIER_DATA, 'taux_criminalite_clean.csv'))
-    df_pauv = pd.read_csv(os.path.join(DOSSIER_DATA, 'taux_pauvrete_clean.csv'))
-    df_rev = pd.read_csv(os.path.join(DOSSIER_DATA, 'revenu_median_angers_clean.csv'))
 
-    # Renommage pour harmoniser la fusion (on s'assure d'avoir 'annee' et 'num_trimestre')
-    # Hypothèse : tes CSV utilisent 'annee' et 'trimestre'
     for df in [df_crim, df_pauv, df_rev]:
         if 'trimestre' in df.columns:
             df.rename(columns={'trimestre': 'num_trimestre'}, inplace=True)
 
-    # 3. Fusion successive (Left join sur la base chômage pour garder l'historique temporel)
+    # 3. Fusion Left join sur chômage pour garder l'historique temporel
     df_final_angers = pd.merge(df_base, df_crim[['annee', 'num_trimestre', 'taux_criminalite']], on=['annee', 'num_trimestre'], how='left')
     df_final_angers = pd.merge(df_final_angers, df_pauv[['annee', 'num_trimestre', 'taux_pauvrete']], on=['annee', 'num_trimestre'], how='left')
     df_final_angers = pd.merge(df_final_angers, df_rev[['annee', 'num_trimestre', 'revenu_median']], on=['annee', 'num_trimestre'], how='left')
 
-    # Nettoyage final pour le SQL
+    # Formattage pour insertion
     df_insert_angers = df_final_angers[['num_trimestre', 'annee', 'taux_chomage', 'revenu_median', 'taux_pauvrete', 'taux_criminalite']]
     df_insert_angers.insert(0, 'id', range(1, len(df_insert_angers) + 1))
     
@@ -175,15 +185,12 @@ def executer_etl_mcd():
             'cands': ['angers_pour_vous', 'lutte_ouvriere', 'angers_citoyenne_et_populaire', 'aimer_angers_2020', 'angers_ecologique_et_solidaire', 'choisir_angers']
         },
         # --- Municipales 2026 - Tour 1 ---
-        # Colonnes candidates issues du CSV : demain_angers, angers_ouvriere_revolutionnaire,
-        # angers_pour_vous, angers_populaire, angers_2026, lutte_ouvriere, rassemblement_pour_angers
         {
             'fichier': 'elections-municipales-1-tour-angers-2026_clean.csv',
             'annee': 2026, 'tour': 1,
             'cands': ['demain_angers', 'angers_ouvriere_revolutionnaire', 'angers_pour_vous', 'angers_populaire', 'angers_2026', 'lutte_ouvriere', 'rassemblement_pour_angers']
         },
         # --- Municipales 2026 - Tour 2 ---
-        # Colonnes candidates issues du CSV : demain_angers, angers_pour_vous
         {
             'fichier': 'elections-municipales-2-tour-angers-2026_clean.csv',
             'annee': 2026, 'tour': 2,
@@ -198,19 +205,18 @@ def executer_etl_mcd():
             df = pd.read_csv(path, sep=None, engine='python')
             df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
             
-            # Vérification des colonnes présentes
+            # Vérification des colonnes si présence des colonnes
             cols_valides = [c for c in conf['cands'] if c in df.columns]
             
-            # Transformation Melt
             df_melt = pd.melt(df, value_vars=cols_valides, var_name='liste', value_name='nb_voix')
             
             # Mapping ID Candidat
             df_melt['candidat_id'] = df_melt['liste'].str.upper().map(dict_cand_id)
             
-            # Jointure pour récupérer Nom/Prénom (requis par le MCD)
+            # Jointure pour récupérer Nom/Prénom
             df_final = pd.merge(df_melt, df_cand_ref[['id', 'nom', 'prenom']], left_on='candidat_id', right_on='id')
             
-            # Préparation insertion (sans colonne ID car Auto-increment)
+            # insertion en base
             df_to_ins = df_final[['nom', 'prenom', 'nb_voix', 'candidat_id']].copy()
             df_to_ins['num_tour'] = conf['tour']
             df_to_ins['annee'] = conf['annee']
