@@ -139,10 +139,10 @@ def executer_etl_mcd():
     # --- ÉTAPE 4: RESULTATS_PRESIDENTIELLES (Logique conservée) ---
     print("4/5 - Insertion Resultats_Presidentielles...")
     fichiers_pres = [
-        {"annee": 2017, "tour": 1, "file": 'election-presidentielle-2017-premier-tour-angers_clean.csv', "col_bureau": 'bureaux'},
-        {"annee": 2017, "tour": 2, "file": 'election-presidentielle-2017-second-tour-angers_clean.csv', "col_bureau": 'bureau'},
-        {"annee": 2022, "tour": 1, "file": 'election-presidentielle-2022-premier-tour-angers_clean.csv', "col_bureau": 'bureau vote'},
-        {"annee": 2022, "tour": 2, "file": 'election-presidentielle-2022-second-tour-angers_clean.csv', "col_bureau": 'bureau vote'}
+        {"annee": 2017, "tour": 1, "file": 'elections-presidentielles-1-tour-angers-2017_clean.csv', "col_bureau": 'bureaux'},
+        {"annee": 2017, "tour": 2, "file": 'elections-presidentielles-2-tour-angers-2017_clean.csv', "col_bureau": 'bureau'},
+        {"annee": 2022, "tour": 1, "file": 'elections-presidentielles-1-tour-angers-2022_clean.csv', "col_bureau": 'bureau vote'},
+        {"annee": 2022, "tour": 2, "file": 'elections-presidentielles-2-tour-angers-2022_clean.csv', "col_bureau": 'bureau vote'}
     ]
 
     p_idx = 1
