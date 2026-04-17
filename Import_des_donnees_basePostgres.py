@@ -46,10 +46,17 @@ def executer_etl_mcd():
 
     print(f"   ✅ Partis politiques insérés.")
 
-    # --- ÉTAPE 2: CANDIDAT (Mis à jour pour 2020 et 2026) ---
+    # --- ÉTAPE 2: CANDIDAT ---
     print("2/5 - Insertion Candidat...")
     MAPPING_CANDIDATS = {
-        # Présidentielles
+        # Présidentielles 2012
+        'Eva Joly': ('Eva', 'Joly', 'Les Écologistes'),
+        'Nicolas Sarkozy': ('Nicolas', 'Sarkozy', 'Les Républicains'),
+        'Jean-Luc Melenchon': ('Jean-Luc', 'Mélenchon', 'La France insoumise'),
+        'Jacques Cheminade': ('Jacques', 'Cheminade', 'Divers'),
+        'François Bayrou': ('François', 'Bayrou', 'Divers centre'),
+        'François Hollande': ('François', 'Hollande', 'Parti socialiste'),
+        # Présidentielles 2017+
         'Nathalie Arthaud': ('Nathalie', 'Arthaud', 'Extrême gauche'),
         'Fabien Roussel': ('Fabien', 'Roussel', 'Parti communiste français'),
         'Emmanuel Macron': ('Emmanuel', 'Macron', 'Renaissance'),
@@ -64,14 +71,14 @@ def executer_etl_mcd():
         'Nicolas Dupont-Aignan': ('Nicolas', 'Dupont-Aignan', 'Droite souverainiste'),
         'François Fillon': ('François', 'Fillon', 'Les Républicains'),
         'Benoît Hamon': ('Benoît', 'Hamon', 'Parti socialiste'),
-        # Municipales 2020
+        # Municipales 2014 & 2020
         'ANGERS POUR VOUS': ('Christophe', 'Béchu', 'Divers droite'),
         'LUTTE OUVRIERE': ('Céline', 'LHuillier', 'Extrême gauche'),
         'ANGERS CITOYENNE ET POPULAIRE': ('Claire', 'Schweitzer', 'Divers gauche'),
-        'AIMER ANGERS 2020': ('Silvia', 'Camara-Tombini', 'Divers gauche'),
+        'AIMER ANGERS': ('Silvia', 'Camara-Tombini', 'Divers gauche'),
         'ANGERS ECOLOGIQUE ET SOLIDAIRE': ('Yves', 'Aurégan', 'Ecologiste'),
         'CHOISIR ANGERS': ('Stéphane', 'Piednoir', 'Divers centre'),
-        # Municipales 2026 (Suelement les nouveaux candidats)
+        # Municipales 2026 (Seulement les nouveaux candidats)
         'DEMAIN ANGERS': ('Romain', 'Laveau', 'Les Écologistes'),
         'ANGERS OUVRIERE REVOLUTIONNAIRE': ('Nicolas', 'Cuisinier', 'Extrême gauche'),
         'ANGERS POPULAIRE': ('Arash', 'Saeidi', 'Divers gauche'),
@@ -97,16 +104,22 @@ def executer_etl_mcd():
     for _, row in df_cand_ref.iterrows():
         key = row['key_search']
         dict_cand_id[key] = row['id']
-        dict_cand_id[key.replace(' ', '_')] = row['id'] # Gestion des espaces et underscores
+        dict_cand_id[key.replace(' ', '_')] = row['id']  # Gestion des espaces et underscores
         dict_cand_id[f"{row['prenom']} {row['nom']}".upper()] = row['id']
+
+    # Alias pour les variantes orthographiques présentes dans les fichiers sources 2012
+    # Les XLS 2012 utilisent 'MELENCHON' sans accent et 'AIMER ANGERS' sans '2020'
+    dict_cand_id['JEAN-LUC MELENCHON'] = dict_cand_id.get('JEAN-LUC MÉLENCHON')
+    dict_cand_id['JEAN-LUC_MELENCHON'] = dict_cand_id.get('JEAN-LUC MÉLENCHON')
+    dict_cand_id['AIMER ANGERS 2020'] = dict_cand_id.get('AIMER ANGERS')
+    dict_cand_id['AIMER_ANGERS_2020'] = dict_cand_id.get('AIMER ANGERS')
 
     print(f"   ✅ Candidats insérés.")
 
 
-    # --- ÉTAPE 3: DONNEES_ANGERS (Mise à jour avec les 3 nouveaux CSV) ---
+    # --- ÉTAPE 3: DONNEES_ANGERS ---
     print("3/5 - Insertion Donnees_Angers (Criminalité, Pauvreté, Revenu)...")
     
-    # 1. Base : Taux de chômage
     df_c = pd.read_csv(os.path.join(DOSSIER_DATA, 'chomage-angers-trim-2003-2025_clean.csv'))
     df_crim = pd.read_csv(os.path.join(DOSSIER_DATA, 'taux_criminalite_clean.csv'))
     df_pauv = pd.read_csv(os.path.join(DOSSIER_DATA, 'taux_pauvrete_clean.csv'))
@@ -119,26 +132,26 @@ def executer_etl_mcd():
     df_c_melt['num_trimestre'] = df_c_melt['periode'].str.split('-t').str[1].astype(int)
     df_base = df_c_melt[['annee', 'num_trimestre', 'taux_chomage']]
 
-
     for df in [df_crim, df_pauv, df_rev]:
         if 'trimestre' in df.columns:
             df.rename(columns={'trimestre': 'num_trimestre'}, inplace=True)
 
-    # 3. Fusion Left join sur chômage pour garder l'historique temporel
     df_final_angers = pd.merge(df_base, df_crim[['annee', 'num_trimestre', 'taux_criminalite']], on=['annee', 'num_trimestre'], how='left')
     df_final_angers = pd.merge(df_final_angers, df_pauv[['annee', 'num_trimestre', 'taux_pauvrete']], on=['annee', 'num_trimestre'], how='left')
     df_final_angers = pd.merge(df_final_angers, df_rev[['annee', 'num_trimestre', 'revenu_median']], on=['annee', 'num_trimestre'], how='left')
 
-    # Formattage pour insertion
     df_insert_angers = df_final_angers[['num_trimestre', 'annee', 'taux_chomage', 'revenu_median', 'taux_pauvrete', 'taux_criminalite']]
     df_insert_angers.insert(0, 'id', range(1, len(df_insert_angers) + 1))
     
     df_insert_angers.to_sql('Donnees_Angers', engine, if_exists='append', index=False)
     print(f"   ✅ Donnees_Angers insérées ({len(df_insert_angers)} lignes).")
 
-    # --- ÉTAPE 4: RESULTATS_PRESIDENTIELLES (Logique conservée) ---
+    # --- ÉTAPE 4: RESULTATS_PRESIDENTIELLES ---
     print("4/5 - Insertion Resultats_Presidentielles...")
     fichiers_pres = [
+        # 2012 : colonnes candidats nommées directement (même logique que 2022)
+        {"annee": 2012, "tour": 1, "file": 'elections-presidentielles-1-tour-angers-2012_clean.csv', "col_bureau": 'bureaux'},
+        {"annee": 2012, "tour": 2, "file": 'elections-presidentielles-2-tour-angers-2012_clean.csv', "col_bureau": 'bureaux'},
         {"annee": 2017, "tour": 1, "file": 'elections-presidentielles-1-tour-angers-2017_clean.csv', "col_bureau": 'bureaux'},
         {"annee": 2017, "tour": 2, "file": 'elections-presidentielles-2-tour-angers-2017_clean.csv', "col_bureau": 'bureau'},
         {"annee": 2022, "tour": 1, "file": 'elections-presidentielles-1-tour-angers-2022_clean.csv', "col_bureau": 'bureau vote'},
@@ -155,7 +168,7 @@ def executer_etl_mcd():
                 df_melted = pd.melt(df, id_vars=[f_info["col_bureau"]], value_vars=cols_cands, var_name='cand_brut', value_name='nb_voix')
                 df_melted['nom_recherche'] = df_melted['cand_brut'].str.replace('nb_voix_', '').str.replace('_', ' ').str.upper()
             else:
-                cols_exclues = ['bureau vote', 'nom bureau vote', 'circonscription', 'inscrits', 'abstentions', 'votants_urne', 'votants_emarg', 'blancs', 'nuls', 'exprimes', 'geo shape', 'geo_point_2d']
+                cols_exclues = ['bureau vote', 'bureaux', 'bureau', 'nom bureau vote', 'circonscription', 'inscrits', 'abstentions', 'votants_urne', 'votants_emarg', 'blancs', 'nuls', 'exprimes', 'geo shape', 'geo_point_2d']
                 cols_cands = [c for c in df.columns if c not in cols_exclues]
                 df_melted = pd.melt(df, id_vars=[f_info["col_bureau"]], value_vars=cols_cands, var_name='nom_recherche', value_name='nb_voix')
                 df_melted['nom_recherche'] = df_melted['nom_recherche'].str.upper()
@@ -173,11 +186,26 @@ def executer_etl_mcd():
             df_to_insert.to_sql('Resultats_Presidentielles', engine, if_exists='append', index=False)
             print(f"   ✅ {f_info['annee']} Tour {f_info['tour']} inséré.")
 
-    # --- ÉTAPE 5: RESULTATS_MUNICIPALES (2020 + 2026) ---
+    # --- ÉTAPE 5: RESULTATS_MUNICIPALES ---
     print("5/5 - Insertion Resultats_Municipales...")
     
-    # Configuration des fichiers à traiter
     config_municipales = [
+        # --- Municipales 2014 - Tour 1 ---
+        # Seuls ANGERS POUR VOUS et LUTTE OUVRIERE ont un candidat_id dans le mapping.
+        # AIMER ANGERS (sans '2020') est résolu via l'alias ajouté dans dict_cand_id.
+        # Les autres listes (ANGERS VIVRE MIEUX, etc.) sont absentes du mapping et seront
+        # ignorées automatiquement par le dropna(subset=['candidat_id']).
+        {
+            'fichier': 'elections-municipales-1-tour-angers-2014_clean.csv',
+            'annee': 2014, 'tour': 1,
+            'cands': ['angers_pour_vous', 'lutte_ouvriere', 'aimer_angers']
+        },
+        # --- Municipales 2014 - Tour 2 ---
+        {
+            'fichier': 'elections-municipales-2-tour-angers-2014_clean.csv',
+            'annee': 2014, 'tour': 2,
+            'cands': ['angers_pour_vous', 'aimer_angers']
+        },
         # --- Municipales 2020 ---
         {
             'fichier': 'elections-municipales-1-tour-angers-2020_clean.csv',
@@ -201,22 +229,17 @@ def executer_etl_mcd():
     for conf in config_municipales:
         path = os.path.join(DOSSIER_DATA, conf['fichier'])
         if os.path.exists(path):
-            # Détection automatique du séparateur (virgule ou point-virgule selon le fichier)
             df = pd.read_csv(path, sep=None, engine='python')
             df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
             
-            # Vérification des colonnes si présence des colonnes
             cols_valides = [c for c in conf['cands'] if c in df.columns]
             
             df_melt = pd.melt(df, value_vars=cols_valides, var_name='liste', value_name='nb_voix')
             
-            # Mapping ID Candidat
             df_melt['candidat_id'] = df_melt['liste'].str.upper().map(dict_cand_id)
             
-            # Jointure pour récupérer Nom/Prénom
             df_final = pd.merge(df_melt, df_cand_ref[['id', 'nom', 'prenom']], left_on='candidat_id', right_on='id')
             
-            # insertion en base
             df_to_ins = df_final[['nom', 'prenom', 'nb_voix', 'candidat_id']].copy()
             df_to_ins['num_tour'] = conf['tour']
             df_to_ins['annee'] = conf['annee']
